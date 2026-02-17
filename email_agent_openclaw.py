@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Agente para ler e-mails via IMAP e gerar resumo dos mais importantes."""
 """Agente para ler e-mails via IMAP e gerar resumo dos mais importantes usando OpenClaw."""
 
 from __future__ import annotations
@@ -110,6 +111,7 @@ def _next_run_time(schedule: List[Tuple[int, int]], now: datetime) -> datetime:
     return min(candidates)
 
 
+def _get_email_identity() -> tuple[str, str, str, str, str, str]:
 
 
 def _get_email_identity() -> tuple[str, str, str, str, str, str]:
@@ -191,6 +193,35 @@ def fetch_recent_emails() -> List[MailMessage]:
         return messages
 
 
+def _local_summary(messages: List[MailMessage]) -> str:
+    top = messages[:5]
+    lines = [
+        "Resumo automático (modo local):",
+        "",
+        "- resumir os itens críticos:",
+    ]
+    for msg in top:
+        lines.append(f"  • {msg.subject} (de: {msg.sender})")
+
+    lines.extend(
+        [
+            "",
+            "- listar pendências por prioridade:",
+            "  • Alta: revisar assuntos com 'urgente', 'prazo', 'vencimento'.",
+            "  • Média: responder dúvidas e acompanhamentos.",
+            "  • Baixa: newsletters e comunicados gerais.",
+            "",
+            "- indicar o que pode esperar:",
+            "  • Mensagens informativas sem pedido de ação imediata.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _llm_summary(messages: List[MailMessage]) -> str:
+    api_url = os.environ["LLM_API_URL"]
+    api_key = os.environ["LLM_API_KEY"]
+    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
 def summarize_important_emails(messages: List[MailMessage]) -> str:
     api_url = os.environ["OPENCLAW_API_URL"]
     api_key = os.environ["OPENCLAW_API_KEY"]
@@ -205,6 +236,8 @@ def summarize_important_emails(messages: List[MailMessage]) -> str:
         "",
         "E-mails:",
     ]
+    for idx, msg in enumerate(messages, start=1):
+        prompt_lines.extend([f"[{idx}] De: {msg.sender}", f"Assunto: {msg.subject}", f"Conteúdo: {msg.body}", ""])
 
     for idx, msg in enumerate(messages, start=1):
         prompt_lines.extend(
@@ -224,6 +257,9 @@ def summarize_important_emails(messages: List[MailMessage]) -> str:
         ],
         "temperature": 0.2,
     }
+    response = requests.post(
+        api_url,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
 
     response = requests.post(
         api_url,
@@ -240,6 +276,16 @@ def summarize_important_emails(messages: List[MailMessage]) -> str:
     try:
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError) as exc:
+        raise RuntimeError(f"Resposta inesperada do LLM: {data}") from exc
+
+
+def summarize_important_emails(messages: List[MailMessage]) -> str:
+    summary_mode = os.getenv("SUMMARY_MODE", "local").lower()
+    if summary_mode == "local":
+        return _local_summary(messages)
+    if summary_mode == "llm":
+        return _llm_summary(messages)
+    raise RuntimeError("SUMMARY_MODE inválido. Use 'local' ou 'llm'.")
         raise RuntimeError(f"Resposta inesperada da OpenClaw: {data}") from exc
 
 
@@ -256,6 +302,7 @@ def send_summary_email(summary: str, total_messages: int) -> None:
     msg["From"] = smtp_from
     msg["To"] = smtp_to
     msg.set_content(
+        "Resumo automático gerado pelo agente.\n\n"
         "Resumo automático gerado pelo agente OpenClaw.\n\n"
         f"Total de e-mails analisados: {total_messages}\n\n"
         f"{summary}"
