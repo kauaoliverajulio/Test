@@ -1,0 +1,273 @@
+#!/usr/bin/env python3
+"""Agente para ler e-mails via IMAP e gerar resumo dos mais importantes usando OpenClaw."""
+
+from __future__ import annotations
+
+import email
+import imaplib
+import json
+import os
+import re
+import smtplib
+import time
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from email.header import decode_header
+from email.message import EmailMessage
+from typing import List, Tuple
+
+import requests
+
+
+@dataclass
+class MailMessage:
+    sender: str
+    subject: str
+    body: str
+
+
+def _now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _decode_text(value: str | bytes | None) -> str:
+    if not value:
+        return ""
+    if isinstance(value, str):
+        return value
+
+    decoded_parts = decode_header(value)
+    chunks: List[str] = []
+    for chunk, encoding in decoded_parts:
+        if isinstance(chunk, bytes):
+            chunks.append(chunk.decode(encoding or "utf-8", errors="ignore"))
+        else:
+            chunks.append(chunk)
+    return "".join(chunks)
+
+
+def _extract_text(msg: email.message.Message) -> str:
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            disposition = str(part.get("Content-Disposition"))
+            if content_type == "text/plain" and "attachment" not in disposition:
+                payload = part.get_payload(decode=True) or b""
+                return payload.decode(errors="ignore")
+    else:
+        payload = msg.get_payload(decode=True) or b""
+        return payload.decode(errors="ignore")
+    return ""
+
+
+def _parse_send_times() -> List[Tuple[int, int]]:
+    raw_times = os.getenv("SEND_TIMES", "06:00,24:00")
+    parsed: List[Tuple[int, int]] = []
+
+    for item in raw_times.split(","):
+        value = item.strip()
+        if not value:
+            continue
+        if value == "24:00":
+            value = "00:00"
+
+        try:
+            hour_str, minute_str = value.split(":")
+            hour = int(hour_str)
+            minute = int(minute_str)
+        except ValueError as exc:
+            raise ValueError(f"Formato inválido em SEND_TIMES: '{item}'. Use HH:MM.") from exc
+
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError(f"Horário inválido em SEND_TIMES: '{item}'.")
+
+        parsed.append((hour, minute))
+
+    unique_sorted = sorted(set(parsed))
+    if not unique_sorted:
+        raise ValueError("SEND_TIMES precisa ter pelo menos um horário.")
+
+    return unique_sorted
+
+
+def _next_run_time(schedule: List[Tuple[int, int]], now: datetime) -> datetime:
+    candidates: List[datetime] = []
+    for hour, minute in schedule:
+        candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        candidates.append(candidate)
+    return min(candidates)
+
+
+
+
+def _get_email_identity() -> tuple[str, str, str, str, str, str]:
+    """Retorna usuário/senhas de IMAP e SMTP com suporte ao modo simplificado de 1 e-mail."""
+    single_email = os.getenv("EMAIL_ADDRESS")
+    single_password = os.getenv("EMAIL_APP_PASSWORD")
+
+    imap_user = os.getenv("IMAP_USER") or single_email
+    imap_password = os.getenv("IMAP_PASSWORD") or single_password
+    smtp_user = os.getenv("SMTP_USER") or single_email
+    smtp_password = os.getenv("SMTP_PASSWORD") or single_password
+
+    if not imap_user or not imap_password or not smtp_user or not smtp_password:
+        raise RuntimeError(
+            "Configure IMAP_USER/IMAP_PASSWORD e SMTP_USER/SMTP_PASSWORD "
+            "ou use EMAIL_ADDRESS + EMAIL_APP_PASSWORD."
+        )
+
+    smtp_to = os.getenv("SMTP_TO", smtp_user)
+    smtp_from = os.getenv("SMTP_FROM", smtp_user)
+    return imap_user, imap_password, smtp_user, smtp_password, smtp_to, smtp_from
+
+def fetch_recent_emails() -> List[MailMessage]:
+    host = os.environ["IMAP_HOST"]
+    user, password, _, _, _, _ = _get_email_identity()
+    mailbox = os.getenv("IMAP_MAILBOX", "INBOX")
+    limit = int(os.getenv("IMAP_LIMIT", "15"))
+    search_criteria = os.getenv("IMAP_SEARCH_CRITERIA", "UNSEEN")
+
+    with imaplib.IMAP4_SSL(host) as conn:
+        conn.login(user, password)
+        conn.select(mailbox)
+        status, data = conn.search(None, search_criteria)
+        if status != "OK":
+            raise RuntimeError("Falha ao consultar mensagens no IMAP.")
+
+        ids = data[0].split()[-limit:]
+        messages: List[MailMessage] = []
+        for msg_id in ids:
+            _, msg_data = conn.fetch(msg_id, "(RFC822)")
+            if not msg_data or not msg_data[0]:
+                continue
+
+            raw_email = msg_data[0][1]
+            parsed = email.message_from_bytes(raw_email)
+            sender = _decode_text(parsed.get("From"))
+            subject = _decode_text(parsed.get("Subject"))
+            body = _extract_text(parsed)
+            body = re.sub(r"\s+", " ", body).strip()
+
+            messages.append(MailMessage(sender=sender, subject=subject, body=body[:3000]))
+
+        return messages
+
+
+def summarize_important_emails(messages: List[MailMessage]) -> str:
+    api_url = os.environ["OPENCLAW_API_URL"]
+    api_key = os.environ["OPENCLAW_API_KEY"]
+    model = os.getenv("OPENCLAW_MODEL", "openclaw-chat")
+
+    prompt_lines = [
+        "Você é um assistente que identifica os e-mails mais importantes para ação imediata.",
+        "Retorne em português no seguinte formato:",
+        "- resumir os itens críticos,",
+        "- listar pendências por prioridade,",
+        "- indicar o que pode esperar.",
+        "",
+        "E-mails:",
+    ]
+
+    for idx, msg in enumerate(messages, start=1):
+        prompt_lines.extend(
+            [
+                f"[{idx}] De: {msg.sender}",
+                f"Assunto: {msg.subject}",
+                f"Conteúdo: {msg.body}",
+                "",
+            ]
+        )
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Você resume e prioriza e-mails com foco em ação."},
+            {"role": "user", "content": "\n".join(prompt_lines)},
+        ],
+        "temperature": 0.2,
+    }
+
+    response = requests.post(
+        api_url,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        data=json.dumps(payload),
+        timeout=60,
+    )
+    response.raise_for_status()
+
+    data = response.json()
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError) as exc:
+        raise RuntimeError(f"Resposta inesperada da OpenClaw: {data}") from exc
+
+
+def send_summary_email(summary: str, total_messages: int) -> None:
+    smtp_host = os.environ["SMTP_HOST"]
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    _, _, smtp_user, smtp_password, smtp_to, smtp_from = _get_email_identity()
+    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+
+    msg = EmailMessage()
+    msg["Subject"] = f"Resumo dos e-mails importantes ({total_messages} analisados)"
+    msg["From"] = smtp_from
+    msg["To"] = smtp_to
+    msg.set_content(
+        "Resumo automático gerado pelo agente OpenClaw.\n\n"
+        f"Total de e-mails analisados: {total_messages}\n\n"
+        f"{summary}"
+    )
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+        if use_tls:
+            server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
+
+
+def run_once() -> None:
+    messages = fetch_recent_emails()
+    if not messages:
+        print(f"[{_now()}] Nenhum e-mail novo encontrado.")
+        return
+
+    summary = summarize_important_emails(messages)
+    print(summary)
+    send_summary_email(summary, total_messages=len(messages))
+    print(f"[{_now()}] Resumo enviado por e-mail com sucesso.")
+
+
+def run_forever() -> None:
+    schedule = _parse_send_times()
+    schedule_text = ", ".join(f"{h:02d}:{m:02d}" for h, m in schedule)
+    print(f"[{_now()}] Modo agendado ativo. Horários: {schedule_text}")
+
+    while True:
+        now = datetime.now()
+        next_run = _next_run_time(schedule, now)
+        sleep_seconds = max(1, int((next_run - now).total_seconds()))
+        print(f"[{_now()}] Próxima execução em {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+        time.sleep(sleep_seconds)
+
+        try:
+            run_once()
+        except Exception as exc:
+            print(f"[{_now()}] Erro na execução agendada: {exc}")
+
+
+def main() -> None:
+    continuous_mode = os.getenv("CONTINUOUS_MODE", "false").lower() == "true"
+    if continuous_mode:
+        run_forever()
+        return
+
+    run_once()
+
+
+if __name__ == "__main__":
+    main()
