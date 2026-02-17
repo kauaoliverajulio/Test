@@ -47,6 +47,25 @@ export CONTINUOUS_MODE="true"
 export SEND_TIMES="06:00,24:00"
 ```
 
+
+### Configuração simplificada (1 e-mail para tudo)
+
+Se você quer facilitar, use somente estas variáveis para autenticação:
+
+```bash
+export EMAIL_ADDRESS="seuemail@gmail.com"
+export EMAIL_APP_PASSWORD="senha-de-app-16-digitos"
+```
+
+Com isso, o código usa automaticamente:
+- `IMAP_USER = EMAIL_ADDRESS`
+- `IMAP_PASSWORD = EMAIL_APP_PASSWORD`
+- `SMTP_USER = EMAIL_ADDRESS`
+- `SMTP_PASSWORD = EMAIL_APP_PASSWORD`
+- `SMTP_TO` e `SMTP_FROM` como o mesmo e-mail, se não forem definidos.
+
+> Você ainda precisa definir `IMAP_HOST`, `SMTP_HOST`, `OPENCLAW_API_URL` e `OPENCLAW_API_KEY`.
+
 ## Execução
 
 ### Rodar uma vez
@@ -110,15 +129,19 @@ docker run --rm \
 | Variável | Exemplo | Obrigatória? | Observação |
 |---|---|---|---|
 | `IMAP_HOST` | `imap.gmail.com` | Sim | Host IMAP do provedor |
-| `IMAP_USER` | `voce@empresa.com` | Sim | Usuário da caixa de entrada |
-| `IMAP_PASSWORD` | `senha-ou-app-password` | Sim | Senha IMAP (muitos provedores exigem app password) |
+| `IMAP_USER` | `voce@empresa.com` | Sim* | Usuário IMAP (ou use `EMAIL_ADDRESS`) |
+| `IMAP_PASSWORD` | `senha-ou-app-password` | Sim* | Senha IMAP (ou use `EMAIL_APP_PASSWORD`) |
 | `OPENCLAW_API_URL` | `https://seu-endpoint/v1/chat/completions` | Sim | Endpoint da OpenClaw |
 | `OPENCLAW_API_KEY` | `sk-...` | Sim | Chave da OpenClaw |
 | `SMTP_HOST` | `smtp.gmail.com` | Sim | Host SMTP para envio (pode ser Gmail pessoal) |
-| `SMTP_USER` | `seuemail@gmail.com` | Sim | Seu e-mail pessoal que enviará os resumos |
-| `SMTP_PASSWORD` | `app-password-do-gmail` | Sim | Para Gmail pessoal, use senha de app de 16 dígitos (não use a senha normal) |
+| `SMTP_USER` | `seuemail@gmail.com` | Sim* | Usuário SMTP (ou use `EMAIL_ADDRESS`) |
+| `SMTP_PASSWORD` | `app-password-do-gmail` | Sim* | Senha SMTP (ou use `EMAIL_APP_PASSWORD`) |
 | `CONTINUOUS_MODE` | `true` | Sim | Mantém o processo em modo agendado |
 | `SEND_TIMES` | `06:00,24:00` | Sim | Horários de envio diário |
+
+
+
+\* Você pode preencher direto (`IMAP_USER`/`IMAP_PASSWORD`/`SMTP_USER`/`SMTP_PASSWORD`) **ou** usar o atalho `EMAIL_ADDRESS` + `EMAIL_APP_PASSWORD`.
 
 #### Variáveis opcionais no Railway
 
@@ -132,6 +155,8 @@ docker run --rm \
 | `SMTP_TO` | `SMTP_USER` | Destinatário do resumo |
 | `SMTP_FROM` | `SMTP_USER` | Remetente exibido |
 | `SMTP_USE_TLS` | `true` | Se seu SMTP não usar TLS, ajustar para `false` |
+| `EMAIL_ADDRESS` | vazio | Atalho para usar o mesmo e-mail em IMAP e SMTP |
+| `EMAIL_APP_PASSWORD` | vazio | Atalho para usar a mesma senha de app em IMAP e SMTP |
 
 
 #### Posso usar o mesmo e-mail da caixa de entrada?

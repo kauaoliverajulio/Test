@@ -100,10 +100,31 @@ def _next_run_time(schedule: List[Tuple[int, int]], now: datetime) -> datetime:
     return min(candidates)
 
 
+
+
+def _get_email_identity() -> tuple[str, str, str, str, str, str]:
+    """Retorna usuário/senhas de IMAP e SMTP com suporte ao modo simplificado de 1 e-mail."""
+    single_email = os.getenv("EMAIL_ADDRESS")
+    single_password = os.getenv("EMAIL_APP_PASSWORD")
+
+    imap_user = os.getenv("IMAP_USER") or single_email
+    imap_password = os.getenv("IMAP_PASSWORD") or single_password
+    smtp_user = os.getenv("SMTP_USER") or single_email
+    smtp_password = os.getenv("SMTP_PASSWORD") or single_password
+
+    if not imap_user or not imap_password or not smtp_user or not smtp_password:
+        raise RuntimeError(
+            "Configure IMAP_USER/IMAP_PASSWORD e SMTP_USER/SMTP_PASSWORD "
+            "ou use EMAIL_ADDRESS + EMAIL_APP_PASSWORD."
+        )
+
+    smtp_to = os.getenv("SMTP_TO", smtp_user)
+    smtp_from = os.getenv("SMTP_FROM", smtp_user)
+    return imap_user, imap_password, smtp_user, smtp_password, smtp_to, smtp_from
+
 def fetch_recent_emails() -> List[MailMessage]:
     host = os.environ["IMAP_HOST"]
-    user = os.environ["IMAP_USER"]
-    password = os.environ["IMAP_PASSWORD"]
+    user, password, _, _, _, _ = _get_email_identity()
     mailbox = os.getenv("IMAP_MAILBOX", "INBOX")
     limit = int(os.getenv("IMAP_LIMIT", "15"))
     search_criteria = os.getenv("IMAP_SEARCH_CRITERIA", "UNSEEN")
@@ -189,10 +210,7 @@ def summarize_important_emails(messages: List[MailMessage]) -> str:
 def send_summary_email(summary: str, total_messages: int) -> None:
     smtp_host = os.environ["SMTP_HOST"]
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_password = os.environ["SMTP_PASSWORD"]
-    smtp_to = os.getenv("SMTP_TO", smtp_user)
-    smtp_from = os.getenv("SMTP_FROM", smtp_user)
+    _, _, smtp_user, smtp_password, smtp_to, smtp_from = _get_email_identity()
     use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
     msg = EmailMessage()
