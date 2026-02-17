@@ -367,6 +367,32 @@ SMTP_USE_TLS=true
 ## 5) Formato do resumo gerado
 
 A OpenClaw recebe instruções para:
+- resumir os itens críticos,
+- listar pendências por prioridade,
+- indicar o que pode esperar.
+
+
+## 6) Conta com 2 fatores (2FA): o que usar
+
+Se sua conta tem 2FA ativado (Gmail, Outlook, Yahoo, etc.), normalmente **não funciona** usar a senha normal da conta em IMAP/SMTP.
+
+Use assim:
+- `EMAIL_ADDRESS`: seu e-mail normal
+- `EMAIL_APP_PASSWORD`: **senha de app** gerada no provedor
+
+Exemplo:
+
+```env
+EMAIL_ADDRESS=seuemail@gmail.com
+EMAIL_APP_PASSWORD=senha-de-app-16-digitos
+```
+
+### Erros comuns quando não usa senha de app
+- `535 5.7.8 Username and Password not accepted`
+- `Authentication failed`
+- login recusado no IMAP/SMTP
+
+Se aparecer esses erros, gere uma senha de app no provedor e atualize `EMAIL_APP_PASSWORD` no Railway/Render/.env.
 ## Como o resumo é gerado
 
 O agente monta um prompt com remetente, assunto e conteúdo dos e-mails encontrados e pede para a OpenClaw:
