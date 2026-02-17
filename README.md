@@ -134,6 +134,18 @@ docker run --rm \
 | `SMTP_USE_TLS` | `true` | Se seu SMTP não usar TLS, ajustar para `false` |
 
 
+#### Posso usar o mesmo e-mail da caixa de entrada?
+
+Sim. Você pode usar o **mesmo e-mail** para ler e para enviar os resumos.
+
+Exemplo (mesma conta):
+
+- `IMAP_USER=seuemail@gmail.com`
+- `SMTP_USER=seuemail@gmail.com`
+- `SMTP_TO=seuemail@gmail.com`
+
+Se quiser receber em outro endereço, altere apenas `SMTP_TO`.
+
 #### Exemplo para e-mail pessoal (Gmail)
 
 Se você vai enviar para seu e-mail pessoal, use assim no Railway:
