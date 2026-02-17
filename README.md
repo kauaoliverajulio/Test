@@ -101,9 +101,44 @@ docker run --rm \
 1. Suba este repositório no GitHub.
 2. No Railway, clique em **New Project > Deploy from GitHub repo**.
 3. Selecione o repositório.
-4. Em **Variables**, adicione todas as variáveis de ambiente do bloco de configuração.
-5. Garanta que `CONTINUOUS_MODE=true` e `SEND_TIMES=06:00,24:00`.
-6. Deploy.
+4. Abra o serviço criado e vá em **Variables**.
+5. Cadastre **exatamente** as variáveis abaixo.
+6. Faça o deploy.
+
+#### Variáveis obrigatórias no Railway
+
+| Variável | Exemplo | Obrigatória? | Observação |
+|---|---|---|---|
+| `IMAP_HOST` | `imap.gmail.com` | Sim | Host IMAP do provedor |
+| `IMAP_USER` | `voce@empresa.com` | Sim | Usuário da caixa de entrada |
+| `IMAP_PASSWORD` | `senha-ou-app-password` | Sim | Senha IMAP (muitos provedores exigem app password) |
+| `OPENCLAW_API_URL` | `https://seu-endpoint/v1/chat/completions` | Sim | Endpoint da OpenClaw |
+| `OPENCLAW_API_KEY` | `sk-...` | Sim | Chave da OpenClaw |
+| `SMTP_HOST` | `smtp.gmail.com` | Sim | Host SMTP para envio |
+| `SMTP_USER` | `voce@empresa.com` | Sim | Usuário SMTP |
+| `SMTP_PASSWORD` | `senha-smtp-ou-app-password` | Sim | Senha SMTP |
+| `CONTINUOUS_MODE` | `true` | Sim | Mantém o processo em modo agendado |
+| `SEND_TIMES` | `06:00,24:00` | Sim | Horários de envio diário |
+
+#### Variáveis opcionais no Railway
+
+| Variável | Padrão | Quando usar |
+|---|---|---|
+| `IMAP_MAILBOX` | `INBOX` | Se quiser outra pasta de e-mail |
+| `IMAP_LIMIT` | `15` | Quantidade máxima de e-mails analisados por execução |
+| `IMAP_SEARCH_CRITERIA` | `UNSEEN` | Trocar filtro (ex.: `ALL`) |
+| `OPENCLAW_MODEL` | `openclaw-chat` | Se você tiver outro nome de modelo |
+| `SMTP_PORT` | `587` | Ajustar porta SMTP |
+| `SMTP_TO` | `SMTP_USER` | Destinatário do resumo |
+| `SMTP_FROM` | `SMTP_USER` | Remetente exibido |
+| `SMTP_USE_TLS` | `true` | Se seu SMTP não usar TLS, ajustar para `false` |
+
+#### Checklist rápido (Railway)
+
+- `CONTINUOUS_MODE=true`
+- `SEND_TIMES=06:00,24:00`
+- `IMAP_SEARCH_CRITERIA=UNSEEN`
+- Todas as credenciais preenchidas sem espaços extras
 
 ### 3) Render
 
