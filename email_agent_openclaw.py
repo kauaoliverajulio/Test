@@ -158,6 +158,9 @@ def _get_hosts(email_address: str | None) -> tuple[str, str, int]:
 def fetch_recent_emails() -> List[MailMessage]:
     user, password, _, _, _, _ = _get_email_identity()
     host, _, _ = _get_hosts(user)
+def fetch_recent_emails() -> List[MailMessage]:
+    host = os.environ["IMAP_HOST"]
+    user, password, _, _, _, _ = _get_email_identity()
     mailbox = os.getenv("IMAP_MAILBOX", "INBOX")
     limit = int(os.getenv("IMAP_LIMIT", "15"))
     search_criteria = os.getenv("IMAP_SEARCH_CRITERIA", "UNSEEN")
@@ -243,6 +246,9 @@ def summarize_important_emails(messages: List[MailMessage]) -> str:
 def send_summary_email(summary: str, total_messages: int) -> None:
     _, _, smtp_user, smtp_password, smtp_to, smtp_from = _get_email_identity()
     _, smtp_host, smtp_port = _get_hosts(smtp_user)
+    smtp_host = os.environ["SMTP_HOST"]
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    _, _, smtp_user, smtp_password, smtp_to, smtp_from = _get_email_identity()
     use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
     msg = EmailMessage()
