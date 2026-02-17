@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Agente para ler e-mails via IMAP e gerar resumo dos mais importantes."""
+"""Agente para ler e-mails via IMAP e gerar resumo dos mais importantes usando OpenClaw."""
 
 from __future__ import annotations
 
 import email
 import imaplib
 import json
-import logging
 import os
 import re
 import smtplib
@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from email.header import decode_header
 from email.message import EmailMessage
-from html import unescape
 from typing import List, Tuple
 
 import requests
@@ -29,12 +28,6 @@ PROVIDER_HOSTS = {
     "yahoo.com": ("imap.mail.yahoo.com", "smtp.mail.yahoo.com", 587),
     "icloud.com": ("imap.mail.me.com", "smtp.mail.me.com", 587),
 }
-
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-logger = logging.getLogger("email-agent")
 
 
 @dataclass
@@ -65,36 +58,17 @@ def _decode_text(value: str | bytes | None) -> str:
 
 
 def _extract_text(msg: email.message.Message) -> str:
-    text_body = ""
-    html_body = ""
-
     if msg.is_multipart():
         for part in msg.walk():
             content_type = part.get_content_type()
             disposition = str(part.get("Content-Disposition"))
-            if "attachment" in disposition:
-                continue
-
-            payload = part.get_payload(decode=True) or b""
-            decoded = payload.decode(errors="ignore")
-            if content_type == "text/plain" and not text_body:
-                text_body = decoded
-            elif content_type == "text/html" and not html_body:
-                html_body = decoded
+            if content_type == "text/plain" and "attachment" not in disposition:
+                payload = part.get_payload(decode=True) or b""
+                return payload.decode(errors="ignore")
     else:
         payload = msg.get_payload(decode=True) or b""
-        decoded = payload.decode(errors="ignore")
-        if msg.get_content_type() == "text/html":
-            html_body = decoded
-        else:
-            text_body = decoded
-
-    if text_body:
-        return text_body
-
-    # fallback simples para HTML
-    cleaned = re.sub(r"<[^>]+>", " ", html_body)
-    return unescape(cleaned)
+        return payload.decode(errors="ignore")
+    return ""
 
 
 def _parse_send_times() -> List[Tuple[int, int]]:
@@ -113,9 +87,7 @@ def _parse_send_times() -> List[Tuple[int, int]]:
             hour = int(hour_str)
             minute = int(minute_str)
         except ValueError as exc:
-            raise ValueError(
-                f"Formato inválido em SEND_TIMES: '{item}'. Use HH:MM."
-            ) from exc
+            raise ValueError(f"Formato inválido em SEND_TIMES: '{item}'. Use HH:MM.") from exc
 
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
             raise ValueError(f"Horário inválido em SEND_TIMES: '{item}'.")
@@ -140,6 +112,10 @@ def _next_run_time(schedule: List[Tuple[int, int]], now: datetime) -> datetime:
 
 
 def _get_email_identity() -> tuple[str, str, str, str, str, str]:
+
+
+def _get_email_identity() -> tuple[str, str, str, str, str, str]:
+    """Retorna usuário/senhas de IMAP e SMTP com suporte ao modo simplificado de 1 e-mail."""
     single_email = os.getenv("EMAIL_ADDRESS")
     single_password = os.getenv("EMAIL_APP_PASSWORD")
 
@@ -159,6 +135,7 @@ def _get_email_identity() -> tuple[str, str, str, str, str, str]:
     return imap_user, imap_password, smtp_user, smtp_password, smtp_to, smtp_from
 
 
+
 def _get_hosts(email_address: str | None) -> tuple[str, str, int]:
     imap_host = os.getenv("IMAP_HOST")
     smtp_host = os.getenv("SMTP_HOST")
@@ -172,11 +149,7 @@ def _get_hosts(email_address: str | None) -> tuple[str, str, int]:
         defaults = PROVIDER_HOSTS.get(domain)
         if defaults:
             default_imap, default_smtp, default_port = defaults
-            return (
-                imap_host or default_imap,
-                smtp_host or default_smtp,
-                int(os.getenv("SMTP_PORT", str(default_port))),
-            )
+            return imap_host or default_imap, smtp_host or default_smtp, int(os.getenv("SMTP_PORT", str(default_port)))
 
     raise RuntimeError(
         "Defina IMAP_HOST e SMTP_HOST ou use EMAIL_ADDRESS de provedor suportado "
@@ -187,6 +160,9 @@ def _get_hosts(email_address: str | None) -> tuple[str, str, int]:
 def fetch_recent_emails() -> List[MailMessage]:
     user, password, _, _, _, _ = _get_email_identity()
     host, _, _ = _get_hosts(user)
+def fetch_recent_emails() -> List[MailMessage]:
+    host = os.environ["IMAP_HOST"]
+    user, password, _, _, _, _ = _get_email_identity()
     mailbox = os.getenv("IMAP_MAILBOX", "INBOX")
     limit = int(os.getenv("IMAP_LIMIT", "15"))
     search_criteria = os.getenv("IMAP_SEARCH_CRITERIA", "UNSEEN")
@@ -212,9 +188,7 @@ def fetch_recent_emails() -> List[MailMessage]:
             body = _extract_text(parsed)
             body = re.sub(r"\s+", " ", body).strip()
 
-            messages.append(
-                MailMessage(sender=sender, subject=subject, body=body[:3000])
-            )
+            messages.append(MailMessage(sender=sender, subject=subject, body=body[:3000]))
 
         return messages
 
@@ -248,6 +222,10 @@ def _llm_summary(messages: List[MailMessage]) -> str:
     api_url = os.environ["LLM_API_URL"]
     api_key = os.environ["LLM_API_KEY"]
     model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+def summarize_important_emails(messages: List[MailMessage]) -> str:
+    api_url = os.environ["OPENCLAW_API_URL"]
+    api_key = os.environ["OPENCLAW_API_KEY"]
+    model = os.getenv("OPENCLAW_MODEL", "openclaw-chat")
 
     prompt_lines = [
         "Você é um assistente que identifica os e-mails mais importantes para ação imediata.",
@@ -258,6 +236,9 @@ def _llm_summary(messages: List[MailMessage]) -> str:
         "",
         "E-mails:",
     ]
+    for idx, msg in enumerate(messages, start=1):
+        prompt_lines.extend([f"[{idx}] De: {msg.sender}", f"Assunto: {msg.subject}", f"Conteúdo: {msg.body}", ""])
+
     for idx, msg in enumerate(messages, start=1):
         prompt_lines.extend(
             [
@@ -271,14 +252,15 @@ def _llm_summary(messages: List[MailMessage]) -> str:
     payload = {
         "model": model,
         "messages": [
-            {
-                "role": "system",
-                "content": "Você resume e prioriza e-mails com foco em ação.",
-            },
+            {"role": "system", "content": "Você resume e prioriza e-mails com foco em ação."},
             {"role": "user", "content": "\n".join(prompt_lines)},
         ],
         "temperature": 0.2,
     }
+    response = requests.post(
+        api_url,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+
     response = requests.post(
         api_url,
         headers={
@@ -289,6 +271,7 @@ def _llm_summary(messages: List[MailMessage]) -> str:
         timeout=60,
     )
     response.raise_for_status()
+
     data = response.json()
     try:
         return data["choices"][0]["message"]["content"]
@@ -303,11 +286,15 @@ def summarize_important_emails(messages: List[MailMessage]) -> str:
     if summary_mode == "llm":
         return _llm_summary(messages)
     raise RuntimeError("SUMMARY_MODE inválido. Use 'local' ou 'llm'.")
+        raise RuntimeError(f"Resposta inesperada da OpenClaw: {data}") from exc
 
 
 def send_summary_email(summary: str, total_messages: int) -> None:
     _, _, smtp_user, smtp_password, smtp_to, smtp_from = _get_email_identity()
     _, smtp_host, smtp_port = _get_hosts(smtp_user)
+    smtp_host = os.environ["SMTP_HOST"]
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    _, _, smtp_user, smtp_password, smtp_to, smtp_from = _get_email_identity()
     use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
     msg = EmailMessage()
@@ -316,6 +303,7 @@ def send_summary_email(summary: str, total_messages: int) -> None:
     msg["To"] = smtp_to
     msg.set_content(
         "Resumo automático gerado pelo agente.\n\n"
+        "Resumo automático gerado pelo agente OpenClaw.\n\n"
         f"Total de e-mails analisados: {total_messages}\n\n"
         f"{summary}"
     )
@@ -330,32 +318,31 @@ def send_summary_email(summary: str, total_messages: int) -> None:
 def run_once() -> None:
     messages = fetch_recent_emails()
     if not messages:
-        logger.info("Nenhum e-mail novo encontrado.")
+        print(f"[{_now()}] Nenhum e-mail novo encontrado.")
         return
 
     summary = summarize_important_emails(messages)
-    logger.info("Resumo gerado com sucesso.")
-    logger.debug(summary)
+    print(summary)
     send_summary_email(summary, total_messages=len(messages))
-    logger.info("Resumo enviado por e-mail com sucesso.")
+    print(f"[{_now()}] Resumo enviado por e-mail com sucesso.")
 
 
 def run_forever() -> None:
     schedule = _parse_send_times()
     schedule_text = ", ".join(f"{h:02d}:{m:02d}" for h, m in schedule)
-    logger.info("Modo agendado ativo. Horários: %s", schedule_text)
+    print(f"[{_now()}] Modo agendado ativo. Horários: {schedule_text}")
 
     while True:
         now = datetime.now()
         next_run = _next_run_time(schedule, now)
         sleep_seconds = max(1, int((next_run - now).total_seconds()))
-        logger.info("Próxima execução em %s", next_run.strftime("%Y-%m-%d %H:%M:%S"))
+        print(f"[{_now()}] Próxima execução em {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
         time.sleep(sleep_seconds)
 
         try:
             run_once()
         except Exception as exc:
-            logger.exception("Erro na execução agendada: %s", exc)
+            print(f"[{_now()}] Erro na execução agendada: {exc}")
 
 
 def main() -> None:
@@ -363,6 +350,7 @@ def main() -> None:
     if continuous_mode:
         run_forever()
         return
+
     run_once()
 
 
