@@ -114,9 +114,9 @@ docker run --rm \
 | `IMAP_PASSWORD` | `senha-ou-app-password` | Sim | Senha IMAP (muitos provedores exigem app password) |
 | `OPENCLAW_API_URL` | `https://seu-endpoint/v1/chat/completions` | Sim | Endpoint da OpenClaw |
 | `OPENCLAW_API_KEY` | `sk-...` | Sim | Chave da OpenClaw |
-| `SMTP_HOST` | `smtp.gmail.com` | Sim | Host SMTP para envio |
-| `SMTP_USER` | `voce@empresa.com` | Sim | Usuário SMTP |
-| `SMTP_PASSWORD` | `senha-smtp-ou-app-password` | Sim | Senha SMTP |
+| `SMTP_HOST` | `smtp.gmail.com` | Sim | Host SMTP para envio (pode ser Gmail pessoal) |
+| `SMTP_USER` | `seuemail@gmail.com` | Sim | Seu e-mail pessoal que enviará os resumos |
+| `SMTP_PASSWORD` | `app-password-do-gmail` | Sim | Para Gmail pessoal, use senha de app de 16 dígitos (não use a senha normal) |
 | `CONTINUOUS_MODE` | `true` | Sim | Mantém o processo em modo agendado |
 | `SEND_TIMES` | `06:00,24:00` | Sim | Horários de envio diário |
 
@@ -132,6 +132,24 @@ docker run --rm \
 | `SMTP_TO` | `SMTP_USER` | Destinatário do resumo |
 | `SMTP_FROM` | `SMTP_USER` | Remetente exibido |
 | `SMTP_USE_TLS` | `true` | Se seu SMTP não usar TLS, ajustar para `false` |
+
+
+#### Exemplo para e-mail pessoal (Gmail)
+
+Se você vai enviar para seu e-mail pessoal, use assim no Railway:
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=seuemail@gmail.com
+SMTP_PASSWORD=senha-de-app-16-digitos
+SMTP_TO=seuemail@gmail.com
+SMTP_FROM=seuemail@gmail.com
+SMTP_USE_TLS=true
+```
+
+> No Gmail pessoal, ative verificação em 2 etapas e gere uma **Senha de app** em
+> Conta Google → Segurança → Senhas de app.
 
 #### Checklist rápido (Railway)
 
