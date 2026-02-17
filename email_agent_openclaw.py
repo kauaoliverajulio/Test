@@ -19,6 +19,16 @@ from typing import List, Tuple
 import requests
 
 
+PROVIDER_HOSTS = {
+    "gmail.com": ("imap.gmail.com", "smtp.gmail.com", 587),
+    "outlook.com": ("outlook.office365.com", "smtp.office365.com", 587),
+    "hotmail.com": ("outlook.office365.com", "smtp.office365.com", 587),
+    "live.com": ("outlook.office365.com", "smtp.office365.com", 587),
+    "yahoo.com": ("imap.mail.yahoo.com", "smtp.mail.yahoo.com", 587),
+    "icloud.com": ("imap.mail.me.com", "smtp.mail.me.com", 587),
+}
+
+
 @dataclass
 class MailMessage:
     sender: str
@@ -122,6 +132,32 @@ def _get_email_identity() -> tuple[str, str, str, str, str, str]:
     smtp_from = os.getenv("SMTP_FROM", smtp_user)
     return imap_user, imap_password, smtp_user, smtp_password, smtp_to, smtp_from
 
+
+
+def _get_hosts(email_address: str | None) -> tuple[str, str, int]:
+    imap_host = os.getenv("IMAP_HOST")
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+
+    if imap_host and smtp_host:
+        return imap_host, smtp_host, smtp_port
+
+    if email_address and "@" in email_address:
+        domain = email_address.split("@", 1)[1].lower()
+        defaults = PROVIDER_HOSTS.get(domain)
+        if defaults:
+            default_imap, default_smtp, default_port = defaults
+            return imap_host or default_imap, smtp_host or default_smtp, int(os.getenv("SMTP_PORT", str(default_port)))
+
+    raise RuntimeError(
+        "Defina IMAP_HOST e SMTP_HOST ou use EMAIL_ADDRESS de provedor suportado "
+        "(gmail/outlook/hotmail/live/yahoo/icloud)."
+    )
+
+
+def fetch_recent_emails() -> List[MailMessage]:
+    user, password, _, _, _, _ = _get_email_identity()
+    host, _, _ = _get_hosts(user)
 def fetch_recent_emails() -> List[MailMessage]:
     host = os.environ["IMAP_HOST"]
     user, password, _, _, _, _ = _get_email_identity()
@@ -208,6 +244,8 @@ def summarize_important_emails(messages: List[MailMessage]) -> str:
 
 
 def send_summary_email(summary: str, total_messages: int) -> None:
+    _, _, smtp_user, smtp_password, smtp_to, smtp_from = _get_email_identity()
+    _, smtp_host, smtp_port = _get_hosts(smtp_user)
     smtp_host = os.environ["SMTP_HOST"]
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     _, _, smtp_user, smtp_password, smtp_to, smtp_from = _get_email_identity()
